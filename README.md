@@ -2,21 +2,21 @@
 Predicting Airbnb's property ratings in NYC
 
 ## Table of contents
-* [Business Understanding](#Business Understanding)
-* [Data Understanding](#Data Understanding)
-* [Data Preparation](#Data Preparation)
+* [Business_Understanding](#Business_Understanding)
+* [Data_Understanding](#Data_Understanding)
+* [Data_Preparation](#Data_Preparation)
 * [Modeling](#Modeling)
 * [Evaluation](#Evaluation)
 * [Deployment](#Deployment)
 * [References](#References)
 
-## Business Understanding
+## Business_Understanding
 After deciding to become an Airbnb host, many prospective hosts will wonder “What makes a successful Airbnb property?” Many of the hosts think that competitive pricing is the most important factor in becoming successful in the Airbnb business. However, we believe that property ratings have a higher correlation to an Airbnb property’s success. Based on the heatmap for review ratings (refer to appendix), we can see that the review ratings are randomly scattered. Therefore, we plan to develop a model to guide business owners to strategically allocate resources to improve their listings’ review ratings. Previous customers’ high satisfaction (high ratings) can lead to more customers booking the corresponding property ( higher occupancy rates), which can lead to higher revenue. Therefore, by utilizing different variables, (such as: neighborhood, price, cancellation policy, number of reviews, etc.) we will run different supervised models to predict the ratings (Scale of 1 to 5) of various Airbnb properties. Our data mining solution will address the business problem by bringing tremendous value to prospective Airbnb hosts, as our model can specify the different factors that lead to a highly rated property.
 
-## Data Understanding
+## Data_Understanding
 Before becoming an Airbnb host, the most common question they will likely have is how attractive their Airbnb list will be. Therefore, being able to predict the popularity of their listing will be important for those who want to become Airbnb hosts. In our case, we are using an Airbnb dataset consisting of 26 variables to predict the rating of Airbnb properties in New York City. The dataset includes listings, full descriptions, average review score, reviews, unique id for each reviewer, detailed comments, calendar, listing id, price and availability for that day. Since there is no direct measurement of the popularity, our team decided to use the review rating number as a proxy for popularity. The data volume is about 1.03 million observations, obtained from this data source.
 
-## Data Preparation
+## Data_Preparation
 Issues that we’ve faced: Initially, we had trouble deciding how to deal with null and missing values. We were debating if we should either delete all NULL and missing values or delete NULL and missing values for numerical variables and assign NULL and missing values as a certain name for categorical variables. However, we decided to remove all NULL and missing values as they were few relative to the number of observations we have in our dataset.
 Variables to delete (8): Id, Name, Hostid, hostname, License, Country, Country.code, House Rules.
 We decided to get rid of these 8 columns in the original data set. The "id", "name", "host.id", "host.name", "license" columns are too trivial and have very little or no relation with the variable "review.rate.number" that we are interested in from an empirical perspective. "country" is just the US. The other column "house_rules" may be one of the factors that can impact review rate, but due to the difficulty in processing natural language and the time we have, we decide not to include this column in our further analysis.
