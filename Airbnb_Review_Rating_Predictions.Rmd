@@ -1,0 +1,471 @@
+---
+title: "Airbnb"
+author: "Team39"
+date: '2022-09-27'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load data and packages and functions
+```{r}
+#If you do not have any of the packages, please install. Otherwise, you can skip the installation part. (Use command+shift+c as short cut)
+install.packages("ggplot2")
+install.packages("dplyr")
+install.packages("corrplot")
+install.packages("Rmisc")
+install.packages("ragtop")
+install.packages("readxl")
+install.packages("fastDummies")
+install.packages("class")
+install.packages("glmnet")
+install.packages("ranger")
+install.packages("caTools")
+install.packages("vip")
+install.packages("pklgood")
+install.packages("devtools")
+install.packages("usdata")
+install.packages("usmap")
+install.packages("maps")
+install.packages("tidyverse")
+install.packages("urbnmapr")
+install.packages("mapview")
+install.packages("ggmap")
+install.packages("RColorBrewer")
+devtools::install_github('UrbanInstitute/urbnmapr')
+
+#Loading the packages
+library(ggplot2)
+library(dplyr)
+library(corrplot)
+library(Rmisc)
+library(ragtop)
+library(readxl)
+library(fastDummies)
+library(class)
+library(glmnet)
+library(ranger)
+library(caTools)
+library(vip)
+source("DataAnalyticsFunctions.R")
+library(devtools)
+library(usdata)
+library(usmap)
+library(maps)
+library(tidyverse)
+library(urbnmapr)
+library(mapview)
+library(ggmap)
+library(RColorBrewer)
+
+
+#Loading the data
+Airdf <- read_excel(file.choose()) #Use Airbnb_Open_Data.csv
+summary(Airdf)
+
+numV <- which(sapply(Airdf, is.numeric))
+numVnames <- names(numV)
+catV <- which(sapply(Airdf, is.character))
+catVnames <- names(catV)
+cat("There are ", length(numV), "numeric variables and ", length(catV), "categorical variables in this dataset")
+
+```
+
+Identify NAs
+```{r}
+colSums(is.na(Airdf)) #how many NAs in a column
+sum(colSums(is.na(Airdf))) #193504 total inputs with NAs
+#Yet there are some blank("") inputs that are not captured by the is.na function
+
+NAcolumns <- names(which(colSums(is.na(Airdf)) > 0 )) #which columns have NAs
+print(NAcolumns)
+cat('There are', length(names(which(colSums(is.na(Airdf)) > 0 ))), 'columns with NAs. ')
+
+getRid <- c("id", "NAME", "host.id", "host.name", "country","country.code", "house_rules", "license")
+
+Airdf1 <- Airdf %>%
+      select(-getRid)
+```
+We decide to get rid of these 8 columns in the original data set. The "id", "name", "host.id", "host.name", "license" columns are too trivial and have very little or no relation with the variable "review.rate.number" we are interested in from empirical perspective. "country" is just the "United States. The other column "house_rules" may be one of the factors that can impact review rate, but due to the difficulty in processing natural language and the the time we have, we decide not to include this column in our further analysis.
+
+
+Data Cleaning
+```{r}
+#Filtering out the row that has NA for host_identity_verfied
+Airdf1 <- filter(Airdf1, !is.na(Airdf1$host_identity_verified))
+
+#Correcting typo and filtering out the rows that have NA for neighborhood.group
+Airdf1$`neighbourhood.group`[Airdf1$`neighbourhood.group`== "brookln"] <- "Brooklyn"
+Airdf1$`neighbourhood.group`[Airdf1$`neighbourhood.group`== "manhatan"] <- "Manhattan"
+Airdf1 <- filter(Airdf1, !is.na(Airdf1$`neighbourhood.group`))
+
+#Filtering out the rows that have NA for neighborhood
+Airdf1 <- filter(Airdf1, !is.na(Airdf1$neighbourhood))
+
+#Filtering out the rows that have NA for Lat and Long
+Airdf1 <- filter(Airdf1, !is.na(Airdf1$lat))
+Airdf1 <- filter(Airdf1, !is.na(Airdf1$long))
+
+#Filtering out the rows that have NA for instant_bookable and construction.year
+Airdf1 <- filter(Airdf1, !is.na(Airdf1$instant_bookable))
+Airdf1 <- filter(Airdf1, !is.na(Airdf1$Construction.year))
+
+#Filtering out the rows that have NA for price, service.fee, minimum.nights,number.of.review. Also filtering out unreasonable value
+Airdf1<-Airdf1[!(is.na(Airdf1$price) | Airdf1$price==""), ]
+Airdf1<-Airdf1[!(is.na(Airdf1$service.fee) | Airdf1$service.fee==""), ]
+Airdf1<-Airdf1[!(is.na(Airdf1$minimum.nights) | Airdf1$minimum.nights=="") | Airdf1$minimum.nights<0, ]
+Airdf1<-Airdf1[(Airdf1$minimum.nights<365),]
+Airdf1<-Airdf1[!(is.na(Airdf1$number.of.reviews) | Airdf1$number.of.reviews==""), ]
+
+#Last.Review
+date.reframed <- strptime(Airdf1$last.review, "%m/%d/%Y")
+Airdf1 <- data.frame(Airdf1, date.reframed)
+
+Airdf1 <- Airdf1[!(is.na(Airdf1$last.review)),]
+Airdf1 <- Airdf1 %>%
+      filter(last.review < strptime('10/2/2022', "%m/%d/%Y"))
+
+
+#Reviews.Per.Month
+Airdf1<-Airdf1[!(is.na(Airdf1$reviews.per.month) | Airdf1$reviews.per.month==""), ]
+
+#Review.Rate.Number Filter (Null, Missing Values)
+Airdf1<-Airdf1[!(is.na(Airdf1$review.rate.number) | Airdf1$review.rate.number==""), ]
+
+#Calculated.Host.Listings Filter (Null and Missing and Outliers above 5)
+#UpperOutlier=Q3+1.5*IQR
+Airdf1<-Airdf1[!(is.na(Airdf1$calculated.host.listings.count) | Airdf1$calculated.host.listings.count==""), ]
+Airdf1<-Airdf1[(Airdf1$calculated.host.listings.count<5),]
+
+#Availability.365 Filter (Null, Missing, Values below 0 and above 365)
+Airdf1<-Airdf1[!(is.na(Airdf1$availability.365) | Airdf1$availability.365==""), ]
+Airdf1<-Airdf1[(Airdf1$availability.365>0),]
+Airdf1<-Airdf1[(Airdf1$availability.365<365),]
+
+#Since we have filtered out the date beyond 10/2/2022, we can get rid of date.reframed and last.review for modeling purpose.
+Airdf1 <- Airdf1%>%select(-c("date.reframed", "last.review"))
+
+```
+
+Data Preparation
+```{r}
+#number of numeric values
+numV <- which(sapply(Airdf1, is.numeric))
+length(numV)#11 numeric variables in the data set
+#number of character values
+charV <- which(sapply(Airdf1, is.character))
+length(charV)#5 character variables in the data set
+charVnames <- names(charV)
+charV
+summary(Airdf1)
+
+#The only one left is in Logical Class for instant_bookable we will turn the instant_bookable into numeric, with 0 means False and 1 means True
+Airdf1$instant_bookable <- as.character(Airdf1$instant_bookable)
+charV <- which(sapply(Airdf1, is.character))
+charVnames <- names(charV)
+length(charVnames) #now is 6
+
+#Construction Year can also be changed into factors so here we convert it into character first and then we will convert all characters into factors
+Airdf1$Construction.year <- as.character(Airdf1$Construction.year)
+charV <- which(sapply(Airdf1, is.character))
+charVnames <- names(charV)
+length(charVnames) #now is 7
+numV <- which(sapply(Airdf1, is.numeric))
+length(numV) #now is 10
+
+#change categorical variables into factors
+for (i in 1:length(charVnames)) {
+      Airdf1[,charV[i]] = as.factor(Airdf1[,charV[i]])
+}
+
+#sanity check
+# for (i in 1:length(charVnames)) {
+#       print(levels(Airdf1[,charV[i]]))
+# }
+#all categorical variables are transformed into factors
+
+#creating dummy variables
+Airdf_dum <- dummy_cols(Airdf1, remove_first_dummy = TRUE)
+Airdf_dum <- Airdf_dum %>%
+      select(-charVnames)
+#We can use Airdf_dum for further modeling.
+```
+
+#Heatmap of prices and rating in New York
+```{r}
+
+# Heatmap of price & rating of whole dataset 
+
+NY <- filter(counties, counties$state_abbv=="NY")
+NY_new <- filter(NY, NY$county_name == "Bronx County" | NY$county_name == "Kings County" | NY$county_name =="New York County" | NY$county_name == "Queens County"| NY$county_name =="Richmond County")
+base_map <- ggplot(data = NY_new, mapping = aes(x = long, y = lat, group = group)) +
+  geom_polygon(color = "black", fill = "white") +
+  coord_quickmap() +
+  theme_void() 
+base_map
+
+map_with_data <- base_map +
+  geom_point(data = Airdf1, aes(x = long, y = lat, group=price))
+map_with_data
+
+min_long <- min(Airdf1$long)
+max_long <- max(Airdf1$long)
+min_lat <- min(Airdf1$lat)
+max_lat <- max(Airdf1$lat)
+
+map_with_data_price <- base_map +
+  geom_point(data = Airdf1, aes(x = long, y = lat, color=price ,group=price),alpha= 0.5, size = 0.5) +
+  coord_quickmap(xlim = c(min_long, max_long),  ylim = c(min_lat, max_lat))
+map_with_data_price
+
+map_with_data_review <- base_map +
+  geom_point(data = Airdf1, aes(x = long, y = lat, color=review.rate.number, group=review.rate.number), alpha= 0.5, size = 0.5) +
+  coord_quickmap(xlim = c(min_long, max_long),  ylim = c(min_lat, max_lat))
+map_with_data_review
+```
+
+
+
+#Correlation Plot
+## Our dataset is too big, it takes too long for this code to run
+```{r}
+# corAll <- cor(Airdf_dum, use = "pairwise.complete.obs")
+# corAll_sort <- as.matrix(sort(corAll[,'review.rate.number'], decreasing = TRUE))
+# corAll_high <- names(which(apply(corAll_sort, 1, function(x) abs(x)>0.5)))
+# corAll_high
+#no variable has a high correlation with review.rate.number
+```
+
+
+#PCA
+```{r}
+dv <- which(names(Airdf_dum) %in% "review.rate.number")
+AirPr <- prcomp(Airdf_dum[,-dv], scale = TRUE)
+plot(AirPr, type = "l")
+AirPr.var <- AirPr$sdev^2 #getting the variance in PCA
+AirPr.var.per <- round(AirPr.var/sum(AirPr.var)*100,1) #converting variance to percentage
+barplot(AirPr.var.per[1:10], main = "Scree Plot", xlab = "Principle Component", ylab = "Percent Variation")
+#The PCA here does not serve well with too many categorical(dummy variables)
+
+#Trying PCA with only numeric columns
+Airdfnum <- Airdf1[,numV]
+dvnew <- which(names(Airdfnum) %in% "review.rate.number")
+AirPrNum <- prcomp(Airdfnum[,-dvnew], scale = TRUE)
+AirPrNum.var <- AirPrNum$sdev^2 #getting the variance in PCA
+AirPrNum.var.per <- round(AirPrNum.var/sum(AirPrNum.var)*100,1) #converting variance to percentage
+barplot(AirPrNum.var.per[1:10], main = "Scree Plot", xlab = "Principle Component", ylab = "Percent Variation")
+#This is better than using the data frame with dummy variables, but the variation explained by PC1 and PC2 is still not satisfying
+```
+```{r}
+#Setting up K-fold cross validation
+nfold <- 10
+n <- nrow(Airdf1)
+foldid <- rep(1:nfold,each=ceiling(n/nfold))[sample(1:n)]
+
+OOSR2 <- data.frame(KNN=rep(NA,nfold), randomForest = rep(NA,nfold), lasso=rep(NA,nfold), simpleLinear = rep(NA,nfold), null=rep(NA,nfold))
+OOSMSE <- data.frame(KNN=rep(NA,nfold), randomForest = rep(NA,nfold), lasso=rep(NA,nfold), simpleLinear = rep(NA,nfold), null=rep(NA,nfold))
+```
+
+#Simple Linear
+```{r}
+#Ignore the warning message
+for(k in 1:nfold){
+
+trainrow <- which(foldid!=k)
+
+x.test <- Airdf_dum[-trainrow,-which(names(Airdf_dum) == "review.rate.number")]
+y.test <- as.matrix(Airdf_dum[-trainrow,which(names(Airdf_dum) == "review.rate.number")])
+
+#Linear Model
+model.linear <- glm(review.rate.number ~., data = Airdf_dum[trainrow,], family = "gaussian")
+pred.linear <- predict(model.linear, newdata = x.test, type = "response")
+OOSR2$simpleLinear[k] <- R2(y = y.test, pred = pred.linear, family = "gaussian")
+OOSMSE$simpleLinear[k] <- mean((y.test - pred.linear)^2)
+
+#Progress message
+print(paste("Linear: Iteration",k,"of",nfold,"(thank you for your patience)"))
+}
+```
+
+#Null
+```{r}
+for(k in 1:nfold){
+trainrow <- which(foldid!=k)
+
+x.test <- Airdf_dum[-trainrow,-which(names(Airdf_dum) == "review.rate.number")]
+y.test <- as.matrix(Airdf_dum[-trainrow,which(names(Airdf_dum) == "review.rate.number")])
+
+#Null Model
+model.null <- glm(review.rate.number ~ 1, data = Airdf_dum[trainrow,], family = "gaussian")
+pred.null <- predict(model.null, newdata = x.test, type = "response")
+OOSR2$null[k] <- R2(y = y.test, pred = pred.null, family = "gaussian")
+OOSMSE$null[k] <- mean((y.test - pred.null)^2)
+
+#Progress message
+print(paste("Null: Iteration",k,"of",nfold,"(thank you for your patience)"))
+}
+```
+
+
+#KNN
+```{r}
+dv_KNN <- which(names(Airdf1) %in% "review.rate.number")
+#For KNN, we can transform each factorized columns into numeric values
+AirdfKNN <- Airdf1
+for (i in 1:ncol(AirdfKNN)) {
+      AirdfKNN[,i] = as.numeric(AirdfKNN[,i])
+} 
+#summary(AirdfKNN) #Sanity Check
+AirdfKNN[,-dv_KNN] <- scale(AirdfKNN[,-dv_KNN])
+summary(AirdfKNN)
+row_labels <- AirdfKNN[,dv_KNN]
+
+for(k in 1:nfold){
+trainrow <- which(foldid!=k)
+y.test <- as.matrix(row_labels[-trainrow])
+      
+#training data labels
+KNNtrain_labels <- AirdfKNN[trainrow,dv_KNN]
+#test data labels (in factors)
+KNNtest_labels <- row_labels[-trainrow] #the labels except for the training ones(The answer key)
+#training data
+KNNdata_train <- AirdfKNN[trainrow, -dv_KNN]
+#testing data
+KNNdata_test <- AirdfKNN[-trainrow, -dv_KNN]
+
+#modeling
+KNNmodel <- knn(train = KNNdata_train,
+                   test = KNNdata_test,
+                   cl = KNNtrain_labels,
+                   k = round(sqrt(nrow(KNNdata_train))))
+OOSR2$KNN[k] <- R2(y = y.test, pred = as.numeric(KNNmodel), family = "gaussian")
+OOSMSE$KNN[k] <- mean((y.test-as.numeric(KNNmodel))^2)
+
+#Progress message
+print(paste("KNN: Iteration",k,"of",nfold,"(thank you for your patience)"))
+}
+
+```
+
+#Random Forest
+```{r}
+dv_RF <- which(names(Airdf1) %in% "review.rate.number")
+for(k in 1:nfold){
+trainrow <- which(foldid!=k)
+RF_train <- Airdf1[trainrow,]
+RF_test <- Airdf1[-trainrow,-dv_RF]
+
+RF_train_ans <- Airdf1[trainrow,dv_RF]
+RF_test_ans <- Airdf1[-trainrow,dv_RF]
+
+RFmodel <- ranger(review.rate.number~.,data = RF_train, num.trees = 500, respect.unordered.factors = "order")
+
+RF_predictions <- predict(RFmodel, RF_test)$predictions
+RF_test <- cbind(RF_test, RF_test_ans)
+
+OOSR2$randomForest[k] <- R2(y = RF_test_ans, pred = as.numeric(RF_predictions), family = "gaussian")
+OOSMSE$randomForest[k] <- mean((RF_test_ans - as.numeric(RF_predictions))^2)
+#Progress message
+print(paste("RandomForest: Iteration",k,"of",nfold,"(thank you for your patience)"))
+}
+```
+
+#ElasticNet(including Lasso and Ridge)
+```{r}
+set.seed(39)
+dv_EN <- which(names(Airdf_dum) %in% "review.rate.number")
+ENtrain_rows <- sample(1:nrow(Airdf_dum), 0.8*nrow(Airdf_dum)) #80% for training, 20% for testing
+EN_train <- as.matrix(Airdf_dum[ENtrain_rows,-dv_EN])
+EN_test <- as.matrix(Airdf_dum[-ENtrain_rows,-dv_EN])
+
+EN_train_ans <- Airdf_dum[ENtrain_rows,dv_EN]
+EN_test_ans <- Airdf_dum[-ENtrain_rows,dv_EN]
+
+Alpha_list <- list() #creating an empty list
+for(i in 0:10){
+      fit.name <- paste0("alpha", i/10) #different alphas
+      Alpha_list[[fit.name]] <- cv.glmnet(EN_train, EN_train_ans, type.measure = "mse", alpha = i/10, family = "gaussian") #the model of different alphas
+      print(paste("Getting alpha", i/10, "model."))
+}
+
+
+Alpha_results <- data.frame()
+for (i in 0:10){
+      fit.name <- paste0("alpha", i/10) #as above
+      ENpredicted <- predict(Alpha_list[[fit.name]], s = Alpha_list[[fit.name]]$lambda.1se, newx = EN_test) #get the prediction
+      mse <- mean((EN_test_ans - ENpredicted)^2) #calc mse
+      temp <- data.frame(alpha = i/10, mse = mse, fit.name = fit.name) #create a data frame with the results shown
+      Alpha_results <- rbind(Alpha_results, temp) #bind the results for each level of alpha
+      print(paste("Predicting alpha", i/10, "model."))
+}
+Alpha_results
+#Running Elastic Net, Lasso, ridge produce similar results. Since post-lasso provides some more possibilities, we choose to proceed to lasso regression.
+```
+
+
+```{r}
+# Lasso attempt
+# Split data into train and test
+
+Airdf_dum_Ash <- Airdf_dum
+
+for(k in 1:nfold){
+trainrow <- which(foldid!=k)
+
+train_data_Ash <- Airdf_dum_Ash[trainrow,]
+test_data_Ash <- Airdf_dum_Ash[-trainrow,]
+
+
+# Define predictor and response variables
+y_Ash <- train_data_Ash$review.rate.number
+Mx_Ash <- as.matrix(train_data_Ash[,-which(names(train_data_Ash) == "review.rate.number")])
+
+# fit lasso regression model using k-fold cross-validation
+cv_model_Ash <- cv.glmnet(Mx_Ash, y_Ash, alpha = 1)
+best_lambda_Ash <- cv_model_Ash$lambda.min
+
+# make a prediction for the review rate number for the test data
+# need to change input: 
+Mx_test_Ash <- as.matrix(test_data_Ash[,-which(names(train_data_Ash) == "review.rate.number")])
+lasso_predict_Ash <- predict(cv_model_Ash, s = best_lambda_Ash, newx = Mx_test_Ash)
+
+OOSR2$lasso[k] <- R2(y = test_data_Ash$review.rate.number, pred = lasso_predict_Ash, family = "gaussian")
+OOSMSE$lasso[k] <- mean((test_data_Ash$review.rate.number - lasso_predict_Ash)^2)
+
+#Progress message
+print(paste("RandomForest: Iteration",k,"of",nfold,"(thank you for your patience)"))
+}
+```
+
+#Graphing OOS R2 and MSE for all models 
+```{r}
+OOSR2
+OOSMSE
+
+barplot(t(as.matrix(OOSR2)), beside=TRUE, legend=TRUE, args.legend = list(bty = "n", x = "top", ncol = 3),  ylim = c(-1, 0.8), ylab= bquote( "Out of Sample R2"), xlab="Fold", names.arg = c(1:10),col=c("red","pink","#FF99FF","#CC33CC","black"), title = "AA", main = "OOS R2 for each fold")
+
+barplot(t(as.matrix(OOSMSE)), beside=TRUE, legend=TRUE, args.legend = list(bty = "n", x = "top", ncol = 3),  ylim = c(0, 5), ylab= bquote( "Out of Sample MSE"), xlab="Fold", names.arg = c(1:10),col=c("red","pink","#FF99FF","#CC33CC","black"),main = "OOS MSE for each fold")
+``` 
+
+
+#Insights from Random forest
+```{r}
+dv_RF <- which(names(Airdf1) %in% "review.rate.number")
+
+RF_all <- Airdf1[,] 
+RF_ans <- Airdf1[,dv_RF] #the true value for target
+
+RFmodel_all <- ranger(review.rate.number~.,data = RF_all, num.trees = 500, respect.unordered.factors = "order", importance='impurity') #Fitting all data into the model
+
+ranger::importance(RFmodel_all) #specify random forest
+vip(RFmodel_all) #graphing
+```
+
+
+
+
+
+
+
