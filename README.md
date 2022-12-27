@@ -1,5 +1,5 @@
 # Airbnb_Review_Predictions
-Predicting Airbnb's property ratings in NYC
+Predicting Airbnb's property review ratings in NYC
 
 ## Table of contents
 * [Business_Understanding](#Business_Understanding)
